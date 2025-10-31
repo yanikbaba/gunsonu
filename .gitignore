@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Build/Dist
+build/
+dist/
+*.spec
+
+# Local DB / Reports
+gunsonu.sqlite
+reports/
+*.pdf
+*.xlsx
+
+# IDE
+.vscode/
+.idea/

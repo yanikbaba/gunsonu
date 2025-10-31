@@ -1,0 +1,257 @@
+﻿
+# GunSonu db_model.py â€” unified schema + CRUD + summaries (Step A + B1) + B2 fixed
+from __future__ import annotations
+import sqlite3
+from typing import Optional, Dict, Any, Iterable, List, Tuple
+
+# --- Connection helpers ---
+def _connect(db_path: str) -> sqlite3.Connection:
+    con = sqlite3.connect(db_path, timeout=15, isolation_level=None)  # autocommit
+    con.execute("PRAGMA foreign_keys=ON;")
+    con.execute("PRAGMA journal_mode=WAL;")
+    con.execute("PRAGMA synchronous=NORMAL;")
+    return con
+
+# --- Schema ---
+SCHEMA_SQL = [
+    # incomes
+    """CREATE TABLE IF NOT EXISTS incomes(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        amount REAL NOT NULL CHECK(amount>=0),
+        description TEXT DEFAULT '',
+        branch TEXT DEFAULT ''
+    );""",
+    # expenses (FIXED: single PRIMARY KEY)
+    """CREATE TABLE IF NOT EXISTS expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        category TEXT NOT NULL,
+        description TEXT,
+        amount REAL NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );""",
+    # advances
+    """CREATE TABLE IF NOT EXISTS advances(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        person TEXT NOT NULL,
+        date TEXT NOT NULL,
+        amount REAL NOT NULL CHECK(amount>=0),
+        note TEXT DEFAULT ''
+    );""",
+    # z_report
+    """CREATE TABLE IF NOT EXISTS z_report(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL UNIQUE,
+        cash_total REAL NOT NULL DEFAULT 0,
+        pos_total REAL NOT NULL DEFAULT 0,
+        qr_included INTEGER NOT NULL DEFAULT 1
+    );""",
+    # indexes
+    """CREATE INDEX IF NOT EXISTS idx_incomes_date ON incomes(date);""",
+    """CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);""",
+    """CREATE INDEX IF NOT EXISTS idx_advances_date ON advances(date);"""
+]
+
+def ensure_schema(db_path: str) -> None:
+    con = _connect(db_path)
+    try:
+        for sql in SCHEMA_SQL:
+            con.execute(sql)
+    finally:
+        con.close()
+
+# --- INSERTS ---
+def insert_income(db_path: str, *, date: str, amount: float, description: str = "", branch: str = "") -> int:
+    con = _connect(db_path)
+    try:
+        cur = con.execute(
+            "INSERT INTO incomes(date, amount, description, branch) VALUES (?,?,?,?)",
+            (date, float(amount), description, branch)
+        )
+        return int(cur.lastrowid)
+    finally:
+        con.close()
+
+def insert_expense(db_path: str, *, date: str, amount: float, description: str = "", branch: str = "") -> int:
+    con = _connect(db_path)
+    try:
+        cur = con.execute(
+            "INSERT INTO expenses(date, amount, description, branch) VALUES (?,?,?,?)",
+            (date, float(amount), description, branch)
+        )
+        return int(cur.lastrowid)
+    finally:
+        con.close()
+
+def insert_advance(db_path: str, *, person: str, date: str, amount: float, note: str = "") -> int:
+    con = _connect(db_path)
+    try:
+        cur = con.execute(
+            "INSERT INTO advances(person, date, amount, note) VALUES (?,?,?,?)",
+            (person, date, float(amount), note)
+        )
+        return int(cur.lastrowid)
+    finally:
+        con.close()
+
+def upsert_z_report(db_path: str, *, date: str, cash_total: float, pos_total: float, qr_included: int = 1) -> None:
+    con = _connect(db_path)
+    try:
+        con.execute(
+            """INSERT INTO z_report(date, cash_total, pos_total, qr_included)
+                 VALUES (?,?,?,?)
+                 ON CONFLICT(date) DO UPDATE SET
+                    cash_total=excluded.cash_total,
+                    pos_total=excluded.pos_total,
+                    qr_included=excluded.qr_included""",
+            (date, float(cash_total), float(pos_total), int(qr_included))
+        )
+    finally:
+        con.close()
+
+# --- QUERIES ---
+def monthly_totals(db_path: str, ym: str) -> Dict[str, float]:
+    con = _connect(db_path)
+    try:
+        cur = con.execute("SELECT COALESCE(SUM(amount),0) FROM incomes WHERE substr(date,1,7)=?", (ym,))
+        incomes_total = float(cur.fetchone()[0] or 0.0)
+        cur = con.execute("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE substr(date,1,7)=?", (ym,))
+        expenses_total = float(cur.fetchone()[0] or 0.0)
+        cur = con.execute("SELECT COALESCE(SUM(amount),0) FROM advances WHERE substr(date,1,7)=?", (ym,))
+        advances_total = float(cur.fetchone()[0] or 0.0)
+        return {
+            "incomes": round(incomes_total,2),
+            "expenses": round(expenses_total,2),
+            "advances": round(advances_total,2),
+            "net": round(incomes_total - expenses_total - advances_total, 2)
+        }
+    finally:
+        con.close()
+
+def list_incomes(db_path: str, ym: Optional[str] = None) -> Iterable[tuple]:
+    con = _connect(db_path)
+    try:
+        if ym:
+            return list(con.execute(
+                "SELECT id,date,amount,description,branch FROM incomes WHERE substr(date,1,7)=? ORDER BY date, id", (ym,)))
+        return list(con.execute("SELECT id,date,amount,description,branch FROM incomes ORDER BY date, id"))
+    finally:
+        con.close()
+
+def list_expenses(db_path: str, ym: Optional[str] = None) -> Iterable[tuple]:
+    con = _connect(db_path)
+    try:
+        if ym:
+            return list(con.execute(
+                "SELECT id,date,amount,description,branch FROM expenses WHERE substr(date,1,7)=? ORDER BY date, id", (ym,)))
+        return list(con.execute("SELECT id,date,amount,description,branch FROM expenses ORDER BY date, id"))
+    finally:
+        con.close()
+
+def list_advances(db_path: str, ym: Optional[str] = None) -> Iterable[tuple]:
+    con = _connect(db_path)
+    try:
+        if ym:
+            return list(con.execute(
+                "SELECT id,person,date,amount,note FROM advances WHERE substr(date,1,7)=? ORDER BY date, id", (ym,)))
+        return list(con.execute("SELECT id,person,date,amount,note FROM advances ORDER BY date, id"))
+    finally:
+        con.close()
+
+# --- B1 minimal ---
+def personnel_advances_summary(db_path: str) -> List[Tuple[str, float, str]]:
+    con = _connect(db_path)
+    try:
+        cur = con.execute(
+            """SELECT person,
+                      ROUND(COALESCE(SUM(amount),0),2) AS total_amount,
+                      MAX(date) AS last_date
+               FROM advances
+               GROUP BY person
+               ORDER BY person COLLATE NOCASE ASC"""
+        )
+        return [(r[0], float(r[1] or 0.0), r[2] or "") for r in cur.fetchall()]
+    finally:
+        con.close()
+
+def monthly_advance_total(db_path: str, ym: str) -> float:
+    con = _connect(db_path)
+    try:
+        cur = con.execute("SELECT COALESCE(SUM(amount),0) FROM advances WHERE substr(date,1,7)=?", (ym,))
+        val = cur.fetchone()[0] or 0.0
+        return round(float(val), 2)
+    finally:
+        con.close()
+
+# --- B2 enhancements ---
+def personnel_advances_summary_b2(db_path: str, ym: Optional[str] = None, person_like: Optional[str] = None) -> List[Tuple[str,float,int,str]]:
+    con = _connect(db_path)
+    try:
+        where = []
+        params = []
+        if ym:
+            where.append("substr(date,1,7)=?")
+            params.append(ym)
+        if person_like:
+            where.append("LOWER(person) LIKE ?")
+            params.append(f"%{person_like.lower()}%")
+        where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+
+        sql = f"""
+            SELECT person,
+                   ROUND(COALESCE(SUM(amount),0),2) AS total_amount,
+                   COUNT(*) AS cnt,
+                   MAX(date) AS last_date
+            FROM advances
+            {where_sql}
+            GROUP BY person
+            ORDER BY person COLLATE NOCASE ASC
+        """
+        cur = con.execute(sql, tuple(params))
+        return [(r[0], float(r[1] or 0.0), int(r[2] or 0), r[3] or "") for r in cur.fetchall()]
+    finally:
+        con.close()
+
+def top_personnel_by_advance(db_path: str, ym: Optional[str] = None, limit: int = 3) -> List[Tuple[str, float]]:
+    con = _connect(db_path)
+    try:
+        if ym:
+            cur = con.execute(
+                """SELECT person, ROUND(SUM(amount),2) AS total_amount
+                   FROM advances WHERE substr(date,1,7)=?
+                   GROUP BY person ORDER BY total_amount DESC, person ASC LIMIT ?""",
+                (ym, limit)
+            )
+        else:
+            cur = con.execute(
+                """SELECT person, ROUND(SUM(amount),2) AS total_amount
+                   FROM advances GROUP BY person
+                   ORDER BY total_amount DESC, person ASC LIMIT ?""",
+                (limit,)
+            )
+        return [(r[0], float(r[1] or 0.0)) for r in cur.fetchall()]
+    finally:
+        con.close()
+
+# === Step C helper (branch breakdown) ===
+def branch_breakdown(db_path: str, ym: str) -> List[Tuple[str, float, float]]:
+    con = _connect(db_path)
+    try:
+        cur = con.execute(
+            """WITH branches AS (
+                   SELECT DISTINCT branch FROM incomes WHERE substr(date,1,7)=?
+                   UNION
+                   SELECT DISTINCT branch FROM expenses WHERE substr(date,1,7)=?
+               )
+               SELECT b.branch,
+                      ROUND(COALESCE((SELECT SUM(amount) FROM incomes  WHERE substr(date,1,7)=? AND branch=b.branch),0),2) AS inc_total,
+                      ROUND(COALESCE((SELECT SUM(amount) FROM expenses WHERE substr(date,1,7)=? AND branch=b.branch),0),2) AS exp_total
+               FROM branches b
+               ORDER BY b.branch COLLATE NOCASE ASC""",
+            (ym, ym, ym, ym)
+        )
+        return [(r[0] or "", float(r[1] or 0.0), float(r[2] or 0.0)) for r in cur.fetchall()]
+    finally:
+        con.close()
+
