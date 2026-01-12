@@ -6,7 +6,7 @@ Crash Snapshot Sanitizer (v0.8.1)
 - Hashes sensitive tokens with SHA256(salt) and keeps last 6 chars for correlation
 - Writes sanitized copies to output directory, preserving filenames
 Usage:
-    python src/tools/crash_sanitize.py --in reports/crash --out reports/crash_sanitized --salt "GunSonuSalt"
+    python src/tools/crash_sanitize.py --in crash --out crash_sanitized --salt "GunSonuSalt"
 """
 import argparse, os, re, hashlib, time, pathlib
 
@@ -30,8 +30,8 @@ def scrub(text: str, salt: str) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--in', dest='inp', default='reports/crash', help='input folder')
-    ap.add_argument('--out', dest='out', default='reports/crash_sanitized', help='output folder')
+    ap.add_argument('--in', dest='inp', default='crash', help='input folder')
+    ap.add_argument('--out', dest='out', default='crash_sanitized', help='output folder')
     ap.add_argument('--salt', dest='salt', default='GunSonuSalt', help='hash salt')
     args = ap.parse_args()
     inp = pathlib.Path(args.inp); out = pathlib.Path(args.out)

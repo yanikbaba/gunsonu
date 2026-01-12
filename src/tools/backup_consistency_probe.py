@@ -35,8 +35,7 @@ def probe_db(path):
 
 def main():
     backup_dir = "backup"
-    out_path = "reports/consistency_report.txt"
-    pathlib.Path("reports").mkdir(parents=True, exist_ok=True)
+    out_path = "consistency_report.txt"
     dbs = glob.glob(os.path.join(backup_dir, "*.sqlite"))
     lines = []
     lines.append(f"=== CONSISTENCY REPORT {datetime.datetime.now().isoformat()} ===")
