@@ -1,7 +1,10 @@
 import json, pathlib, pytest
 
 def test_config_min_schema():
-    cfg_path = pathlib.Path("config.json")
+    # Test dosyasının bulunduğu dizini al (örn: tests/)
+    # Kök dizine ulaşmak için bir üst dizine çık (../)
+    # config.json dosyasını kök dizinde ara
+    cfg_path = pathlib.Path(__file__).parent.parent / "config.json"
     if not cfg_path.exists():
         pytest.skip("config.json bulunamadı")
     data = json.loads(cfg_path.read_text(encoding="utf-8"))
