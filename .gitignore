@@ -10,7 +10,6 @@ dist/
 
 # Local DB / Reports
 gunsonu.sqlite
-reports/
 *.pdf
 *.xlsx
 
